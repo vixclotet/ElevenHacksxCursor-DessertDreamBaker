@@ -3,8 +3,7 @@
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { CommitStrategy, Conversation, RealtimeEvents, Scribe } from "@elevenlabs/client";
-import type { VoiceConversation } from "@elevenlabs/client";
+import { CommitStrategy, RealtimeEvents, Scribe } from "@elevenlabs/client";
 import {
   Command,
   Mic,
@@ -39,8 +38,6 @@ type ChatLine = {
   ts: number;
 };
 
-const STUDIO_VIBE =
-  "Modern luxury baking studio — calm, empowering, step-by-step guidance.";
 const STUDIO_SFX_STYLE =
   "soft studio foley: gentle whisk, airy whoosh, warm oven ding, subtle sparkle";
 
@@ -62,7 +59,8 @@ async function playAudioBlob(blob: Blob, volume = 1) {
 
 async function fetchAndPlayTts(opts: {
   text: string;
-  voiceId: string;
+  /** Omit to use server default (`ELEVENLABS_TTS_VOICE_ID`). */
+  voiceId?: string;
   modelId: "eleven_flash_v2_5" | "eleven_v3";
   volume: number;
 }) {
@@ -71,7 +69,7 @@ async function fetchAndPlayTts(opts: {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       text: opts.text,
-      voiceId: opts.voiceId,
+      ...(opts.voiceId ? { voiceId: opts.voiceId } : {}),
       modelId: opts.modelId,
       optimizeStreamingLatency: opts.modelId === "eleven_flash_v2_5" ? 4 : 2,
     }),
@@ -116,7 +114,6 @@ export default function DessertDreamBaker() {
   const [partial, setPartial] = useState("");
   const [, setLines] = useState<ChatLine[]>(() => []);
 
-  const convoRef = useRef<VoiceConversation | null>(null);
   const scribeRef = useRef<ReturnType<typeof Scribe.connect> | null>(null);
   const demoAbortRef = useRef<{ aborted: boolean }>({ aborted: false });
 
@@ -174,15 +171,6 @@ export default function DessertDreamBaker() {
     const step = activeRecipe.steps[stepIndex];
     if (!step) return;
 
-    // Keep the agent in sync, but use our own cloned narration when available.
-    convoRef.current?.sendContextualUpdate(
-      [
-        `Active dessert recipe: ${activeRecipe.name}`,
-        `Current step (${stepIndex + 1}/${activeRecipe.steps.length}): ${step}`,
-        "If user says Next/Repeat/Substitute/Ingredients, respond with ONE concise step only.",
-      ].join("\n"),
-    );
-
     void playSfx("Soft whoosh page turn, gentle", 0.7);
     if (messyMode) {
       await narrate(
@@ -196,8 +184,17 @@ export default function DessertDreamBaker() {
 
   const connectScribe = useCallback(async () => {
     const tokenRes = await fetch("/api/eleven/scribe-token");
-    if (!tokenRes.ok) throw new Error("Failed to get Scribe token");
-    const { token } = (await tokenRes.json()) as { token: string };
+    const payload = (await tokenRes.json().catch(() => ({}))) as {
+      token?: string;
+      error?: string;
+    };
+    if (!tokenRes.ok || !payload.token?.trim()) {
+      throw new Error(
+        payload.error ??
+          `Failed to get Scribe token (HTTP ${tokenRes.status}). Add ELEVENLABS_API_KEY to .env.local and restart npm run dev.`,
+      );
+    }
+    const token = payload.token.trim();
 
     const scribe = Scribe.connect({
       token,
@@ -218,10 +215,61 @@ export default function DessertDreamBaker() {
     return scribe;
   }, []);
 
-  const sendToAgent = (text: string) => {
-    setIsThinking(true);
-    convoRef.current?.sendUserMessage(text);
-  };
+  const speakChefReply = useCallback(
+    async (text: string) => {
+      const vol = Math.min(1, messyMode ? Math.min(1, volume + 0.08) : volume);
+      try {
+        setMode("speaking");
+        await fetchAndPlayTts({
+          text,
+          voiceId:
+            cloneVoiceId && useMyVoiceForNarration ? cloneVoiceId : undefined,
+          modelId: "eleven_flash_v2_5",
+          volume: vol,
+        });
+      } finally {
+        setMode("listening");
+      }
+    },
+    [cloneVoiceId, messyMode, useMyVoiceForNarration, volume],
+  );
+
+  const chefReply = useCallback(
+    async (userLine: string) => {
+      setIsThinking(true);
+      setMode("listening");
+      try {
+        const res = await fetch("/api/eleven/chef-turn", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            userLine,
+            activeRecipeId: activeRecipeId ?? null,
+            stepIndex,
+          }),
+        });
+        const data = (await res.json().catch(() => ({}))) as {
+          error?: string;
+          reply?: string;
+        };
+        if (!res.ok) {
+          addLine(
+            "system",
+            typeof data.error === "string" ? data.error : "Chef reply failed.",
+          );
+          return;
+        }
+        const reply = (data.reply ?? "").trim();
+        if (!reply) return;
+
+        addLine("assistant", reply);
+        await speakChefReply(reply);
+      } finally {
+        setIsThinking(false);
+      }
+    },
+    [activeRecipeId, addLine, speakChefReply, stepIndex],
+  );
 
   const speakHelp = useCallback(async () => {
     void playSfx("Soft UI chime, elegant", 0.6);
@@ -231,11 +279,10 @@ export default function DessertDreamBaker() {
       await narrate(help, "fast");
       return;
     }
-    setIsThinking(true);
-    convoRef.current?.sendUserMessage(
-      `The user asked for help. Reply in one short paragraph with these voice commands: ${help}`,
+    await chefReply(
+      `The user asked for help. Reply in one short paragraph listing these voice commands: ${help}`,
     );
-  }, [cloneVoiceId, narrate, playSfx, useMyVoiceForNarration]);
+  }, [chefReply, cloneVoiceId, narrate, playSfx, useMyVoiceForNarration]);
 
   async function handleUserText(text: string) {
       const cmd = parseVoiceCommand(text, DESSERT_RECIPES);
@@ -355,7 +402,7 @@ export default function DessertDreamBaker() {
           `[excited] Timer set for ${Math.round(cmd.seconds / 60)} minutes.`,
           "fast",
         );
-        sendToAgent(
+        void chefReply(
           `User set a timer for ${cmd.seconds} seconds. Acknowledge briefly, then ask what dessert step is next.`,
         );
         return;
@@ -369,7 +416,7 @@ export default function DessertDreamBaker() {
           const recipe = DESSERT_RECIPES.find((r) => r.id === target)!;
           void playSfx("Soft success chime, elegant sparkle", 0.9);
           void narrate(`[excited] Let’s make ${recipe.name}.`, "expressive");
-          sendToAgent(
+          void chefReply(
             `We are starting ${recipe.name}. Give step 1 only, then wait for "next" or "repeat".`,
           );
           setTimeout(() => void announceCurrentStep(), 350);
@@ -385,7 +432,7 @@ export default function DessertDreamBaker() {
             .join(". ")}.`,
           "fast",
         );
-        sendToAgent(
+        void chefReply(
           `User asked for ingredients. List ingredients briefly for ${activeRecipe.name}, then ask if they want step ${stepIndex + 1}.`,
         );
         return;
@@ -394,7 +441,7 @@ export default function DessertDreamBaker() {
       if (cmd.type === "repeat" && activeRecipe) {
         void playSfx("Soft rewind whoosh", 0.7);
         void announceCurrentStep();
-        sendToAgent(`User said repeat. Repeat step ${stepIndex + 1} only.`);
+        void chefReply(`User said repeat. Repeat step ${stepIndex + 1} only.`);
         return;
       }
 
@@ -402,7 +449,7 @@ export default function DessertDreamBaker() {
         const nextIdx = Math.min(stepIndex + 1, activeRecipe.steps.length - 1);
         setStepIndex(nextIdx);
         setTimeout(() => void announceCurrentStep(), 250);
-        sendToAgent(`User said next. Provide step ${nextIdx + 1} only.`);
+        void chefReply(`User said next. Provide step ${nextIdx + 1} only.`);
         return;
       }
 
@@ -414,15 +461,15 @@ export default function DessertDreamBaker() {
         if (tips?.length) {
           void playSfx("Helpful sparkle, soft", 0.7);
           void narrate(`Substitution for ${cmd.ingredient}. ${tips.join(" ")}`, "fast");
-          sendToAgent(
+          void chefReply(
             `User asked to substitute ${cmd.ingredient}. Suggest: ${tips.join(" ")} Then ask if they want to continue with step ${stepIndex + 1}.`,
           );
           return;
         }
       }
 
-      // Otherwise, freeform goes to agent.
-      sendToAgent(text);
+      // Otherwise, freeform → local chef copy + TTS.
+      void chefReply(text);
   }
 
   async function runDemo() {
@@ -447,7 +494,7 @@ export default function DessertDreamBaker() {
       setStepIndex(0);
       await sleep(250);
       await narrate("[excited] Let’s make chocolate chip cookies.", "expressive");
-      convoRef.current?.sendUserMessage(
+      void chefReply(
         "We are starting chocolate chip cookies. Give step 1 only. Keep it short.",
       );
       await announceCurrentStep();
@@ -457,7 +504,7 @@ export default function DessertDreamBaker() {
       await sleep(900);
       void playSfx("Helpful sparkle, soft", 0.7);
       await narrate("No butter? Substitute: vegan butter sticks, or salted butter—halve the salt.", "fast");
-      convoRef.current?.sendUserMessage(
+      void chefReply(
         "User asked for a butter substitute. Give 1-2 substitutions briefly, then ask to continue.",
       );
       if (checkAbort()) return;
@@ -507,14 +554,6 @@ export default function DessertDreamBaker() {
       scribeRef.current = null;
     }
 
-    if (convoRef.current) {
-      try {
-        await convoRef.current.endSession();
-      } catch {
-        // ignore
-      }
-      convoRef.current = null;
-    }
   }, []);
 
   const startSession = useCallback(async () => {
@@ -524,82 +563,7 @@ export default function DessertDreamBaker() {
     try {
       await navigator.mediaDevices.getUserMedia({ audio: true });
 
-      const publicAgentId = process.env.NEXT_PUBLIC_ELEVENLABS_AGENT_ID?.trim();
-
-      const sessionAuth = publicAgentId
-        ? ({ agentId: publicAgentId, connectionType: "webrtc" as const } as const)
-        : await (async () => {
-            const signedRes = await fetch("/api/eleven/agent-signed-url");
-            if (!signedRes.ok) {
-              const errBody = await signedRes.json().catch(() => ({}));
-              throw new Error(
-                typeof errBody === "object" &&
-                  errBody !== null &&
-                  "error" in errBody
-                  ? String((errBody as { error?: string }).error)
-                  : "Failed to get agent signed URL — set ELEVENLABS_API_KEY + ELEVENLABS_AGENT_ID in .env.local, or set NEXT_PUBLIC_ELEVENLABS_AGENT_ID for a public agent.",
-              );
-            }
-            const { signedUrl } = (await signedRes.json()) as {
-              signedUrl: string;
-            };
-            return { signedUrl };
-          })();
-
-      const conversation = (await Conversation.startSession({
-        ...sessionAuth,
-        onStatusChange: (payload) => {
-          const s =
-            typeof payload === "string"
-              ? payload
-              : (payload as { status?: string }).status;
-          if (s === "connected") setStatus("connected");
-          if (s === "connecting") setStatus("connecting");
-          if (s === "disconnected") setStatus("idle");
-        },
-        onModeChange: (payload) => {
-          const m =
-            typeof payload === "string"
-              ? payload
-              : (payload as { mode?: string }).mode;
-          if (m === "listening" || m === "speaking") setMode(m);
-          else setMode("unknown");
-          if (m === "speaking") setIsThinking(false);
-        },
-        onMessage: (message) => {
-          const anyMsg = message as unknown as {
-            source?: "user" | "agent";
-            text?: string;
-            message?: string;
-            type?: string;
-          };
-          const text = anyMsg.text ?? anyMsg.message;
-          if (!text) return;
-          if (anyMsg.source === "agent") setIsThinking(false);
-          addLine(anyMsg.source === "user" ? "user" : "assistant", text);
-        },
-        onError: () => setStatus("error"),
-      })) as VoiceConversation;
-
-      convoRef.current = conversation;
-      await conversation.setVolume({ volume });
-
-      // We'll use Scribe v2 Realtime for STT and send text to the agent.
-      // Mute the agent microphone so we don't double-capture audio.
-      await conversation.setMicMuted(true);
-
-      conversation.sendContextualUpdate(
-        [
-          "You are Dessert Dream Baker, an AI sous-chef specialized exclusively in DESSERTS (cakes, cookies, pies, pastries, etc.).",
-          "If the user asks for non-dessert food, politely refuse and steer back to desserts.",
-          "Be step-by-step. Only give ONE step at a time and wait for: next, repeat, how much, substitute X, I'm done.",
-          `Studio vibe: ${STUDIO_VIBE}`,
-          `Expressive tags allowed: [laughs], [excited], [whispers].`,
-          cloneVoiceId
-            ? "User has a cloned voice available for narration/timers (handled by the client). Keep your responses short and stepwise."
-            : "No cloned voice available yet; keep responses short and stepwise.",
-        ].join("\n"),
-      );
+      setMode("listening");
 
       await playSfx(`Kitchen ambience, ${STUDIO_SFX_STYLE}`, 1.2);
 
@@ -618,18 +582,7 @@ export default function DessertDreamBaker() {
       setStatus("error");
       await stopSession();
     }
-  }, [
-    activeRecipe,
-    addLine,
-    announceCurrentStep,
-    cloneVoiceId,
-    narrate,
-    playSfx,
-    status,
-    stepIndex,
-    stopSession,
-    volume,
-  ]);
+  }, [addLine, connectScribe, playSfx, status, stopSession]);
 
   const micButtonLabel =
     status === "connected"
@@ -647,12 +600,6 @@ export default function DessertDreamBaker() {
         : status === "error"
           ? "Error"
           : "Start";
-
-  useEffect(() => {
-    const convo = convoRef.current;
-    if (!convo) return;
-    void convo.setVolume({ volume });
-  }, [volume]);
 
   // Load is handled in useState initializers (avoids setState-in-effect lint).
 
@@ -1053,7 +1000,7 @@ export default function DessertDreamBaker() {
                 </CardContent>
               </Card>
 
-              {/* Current step (only visible while agent is speaking) */}
+              {/* Current step (only visible while chef audio is playing) */}
               <AnimatePresence>
                 {status === "connected" && mode === "speaking" && activeRecipe && (
                   <motion.div

@@ -99,7 +99,7 @@ export default function OpenGraphImage() {
               Your hands-free AI pastry chef — calm guidance, dramatic timers, and dessert-only genius.
             </div>
             <div style={{ display: "flex", gap: 10, marginTop: 6 }}>
-              {["Voice-first", "Scribe STT", "Agents", "Sound effects"].map((t) => (
+              {["Voice-first", "Scribe STT", "TTS", "Sound effects"].map((t) => (
                 <div
                   key={t}
                   style={{
