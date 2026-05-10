@@ -7,6 +7,17 @@ export type ParsedCommand =
   | { type: "start_recipe"; recipeId?: string; query?: string }
   | { type: "substitute"; ingredient: string }
   | { type: "timer"; seconds: number; label?: string }
+  | { type: "start_demo" }
+  | { type: "help" }
+  | { type: "open_settings" }
+  | { type: "close_settings" }
+  | { type: "clone_voice" }
+  | { type: "pause" }
+  | { type: "resume" }
+  | { type: "stop" }
+  | { type: "set_dark_mode"; enabled: boolean }
+  | { type: "set_messy_mode"; enabled: boolean }
+  | { type: "set_gloves_mode"; enabled: boolean }
   | { type: "freeform"; text: string };
 
 const WORD_NUM: Record<string, number> = {
@@ -47,6 +58,41 @@ function parseNumber(s: string): number | null {
 export function parseVoiceCommand(textRaw: string, recipes: Recipe[]): ParsedCommand {
   const text = textRaw.trim();
   const lower = text.toLowerCase();
+
+  if (/\b(start demo|demo mode)\b/.test(lower)) return { type: "start_demo" };
+  if (
+    /\b(what can i say|help|voice shortcuts|commands)\b/.test(lower) &&
+    !/\bsubstitute\b/.test(lower)
+  ) {
+    return { type: "help" };
+  }
+
+  if (/\b(open settings|open studio settings|settings)\b/.test(lower))
+    return { type: "open_settings" };
+  if (/\b(close settings|close studio settings|close)\b/.test(lower))
+    return { type: "close_settings" };
+  if (/\b(clone my voice|clone voice|create clone|voice clone)\b/.test(lower))
+    return { type: "clone_voice" };
+
+  if (/^(pause|pause listening|pause session)\b/.test(lower)) return { type: "pause" };
+  if (/^(resume|continue listening|resume session)\b/.test(lower)) return { type: "resume" };
+  if (/^(stop|stop session|end session|quit)\b/.test(lower)) return { type: "stop" };
+
+  if (/\b(dark mode)\b/.test(lower)) {
+    if (/\b(on|enable|enabled|turn on)\b/.test(lower)) return { type: "set_dark_mode", enabled: true };
+    if (/\b(off|disable|disabled|turn off)\b/.test(lower)) return { type: "set_dark_mode", enabled: false };
+  }
+
+  if (/\b(hands are messy|messy mode)\b/.test(lower)) {
+    if (/\b(on|enable|enabled|turn on)\b/.test(lower)) return { type: "set_messy_mode", enabled: true };
+    if (/\b(off|disable|disabled|turn off)\b/.test(lower)) return { type: "set_messy_mode", enabled: false };
+  }
+
+  if (/\b(gloves|i can't tap|cant tap|no tapping)\b/.test(lower)) {
+    if (/\b(on|enable|enabled|turn on)\b/.test(lower) || /\b(i can't tap|cant tap|no tapping)\b/.test(lower))
+      return { type: "set_gloves_mode", enabled: true };
+    if (/\b(off|disable|disabled|turn off)\b/.test(lower)) return { type: "set_gloves_mode", enabled: false };
+  }
 
   if (/^(next|go on|continue|okay next)\b/.test(lower)) return { type: "next" };
   if (/^(repeat|say that again|again)\b/.test(lower)) return { type: "repeat" };
