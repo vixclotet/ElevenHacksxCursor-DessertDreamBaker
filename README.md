@@ -1,8 +1,12 @@
 # ElevenHacksxCursor-DessertDreamBaker
-🍪 Dessert Dream Baker. A delightful voice-first AI pastry chef built with Cursor &amp; ElevenLabs. Talk naturally while baking cakes, cookies &amp; desserts. Real-time guidance, voice cloning, expressive TTS &amp; immersive sound effects.
 
-A fully hands-free, voice-powered dessert companion built for the Cursor x ElevenLabs Hackathon.
-Talk to your kitchen and get guided through cakes, cookies, pies, cheesecakes, and no-bake treats — no typing, no screen staring, just pure voice interaction while your hands are covered in flour.
+## Overview
+
+![Dessert Dream Baker — Voice studio UI over a bakery backdrop](docs/app-overview.png)
+
+**Dessert Dream Baker** is a hands-free AI pastry chef for the Cursor × ElevenLabs Hackathon. The UI is built around **Voice studio**: tap once to connect the mic, then speak naturally for recipes, demos, timers, and shortcuts—while **Voice shortcuts** lists phrases you can say without touching the screen (messy hands, gloves mode, settings, and more). Under the hood it combines ElevenLabs **Agents**, **Scribe** realtime speech-to-text, **TTS**, and **sound effects** for a luxury “baking studio” feel.
+
+🍪 Talk through cakes, cookies, pies, and no-bake treats with real-time guidance—no typing, just voice while your hands are covered in flour.
 
 ## ✨ Key Features
 
