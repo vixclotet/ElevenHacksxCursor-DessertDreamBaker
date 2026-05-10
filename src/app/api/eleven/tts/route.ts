@@ -5,7 +5,8 @@ export const runtime = "nodejs";
 
 const BodySchema = z.object({
   text: z.string().min(1).max(1200),
-  voiceId: z.string().min(1),
+  /** Omit to use `ELEVENLABS_TTS_VOICE_ID` on the server (recommended). */
+  voiceId: z.string().min(1).optional(),
   modelId: z.enum(["eleven_flash_v2_5", "eleven_v3"]).default("eleven_flash_v2_5"),
   optimizeStreamingLatency: z.number().min(0).max(4).optional(),
 });
@@ -30,7 +31,18 @@ export async function POST(req: Request) {
     );
   }
 
-  const { text, voiceId, modelId, optimizeStreamingLatency } = parsed.data;
+  const { text, modelId, optimizeStreamingLatency } = parsed.data;
+  const voiceId =
+    parsed.data.voiceId ?? process.env.ELEVENLABS_TTS_VOICE_ID?.trim();
+  if (!voiceId) {
+    return NextResponse.json(
+      {
+        error:
+          "Provide voiceId in the request body or set ELEVENLABS_TTS_VOICE_ID for default chef voice.",
+      },
+      { status: 500 },
+    );
+  }
 
   const url = new URL(`${baseUrl}/v1/text-to-speech/${voiceId}/stream`);
   url.searchParams.set("output_format", "mp3_44100_128");
