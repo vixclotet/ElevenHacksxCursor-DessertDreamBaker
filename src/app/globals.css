@@ -1,26 +1,80 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Modern luxury baking studio palette (light) */
+  --background: #fbfaf7; /* creamy off-white */
+  --foreground: #1c1b18; /* espresso ink */
+
+  --card: #ffffffcc;
+  --card-foreground: var(--foreground);
+
+  --muted: #f2efe8;
+  --muted-foreground: #6b665d;
+
+  --border: #e9e3d8;
+  --input: #e9e3d8;
+
+  --primary: #1f2937; /* deep graphite */
+  --primary-foreground: #fbfaf7;
+
+  --accent: #f6d7de; /* blush */
+  --accent-foreground: #2a1f20;
+
+  --sage: #cfe0d6;
+  --butter: #fde7a0;
+
+  --ring: #f3b6c4;
+  --shadow: 0 10px 30px rgba(18, 16, 12, 0.08);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-sans);
+  --font-display: var(--font-display);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/* Class-based dark mode via next-themes */
+.dark {
+  --background: #0e0c0a;
+  --foreground: #f5f1ea;
+
+  --card: #14110ecc;
+  --card-foreground: var(--foreground);
+
+  --muted: #1a1612;
+  --muted-foreground: #b9b1a5;
+
+  --border: #2b241d;
+  --input: #2b241d;
+
+  --primary: #f5f1ea;
+  --primary-foreground: #0e0c0a;
+
+  --accent: #2a1a1f;
+  --accent-foreground: #f7dbe2;
+
+  --sage: #21302a;
+  --butter: #3a2f10;
+
+  --ring: #d48b9b;
+  --shadow: 0 14px 40px rgba(0, 0, 0, 0.35);
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans), ui-sans-serif, system-ui, -apple-system,
+    Segoe UI, Roboto, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji",
+    "Segoe UI Emoji";
+}
+
+/* Subtle selection & focus polish */
+::selection {
+  background: color-mix(in oklab, var(--accent) 70%, white 30%);
+}
+
+:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--ring) 70%, white 30%);
+  outline-offset: 2px;
 }
